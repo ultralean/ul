@@ -1,0 +1,10 @@
+[2026-04-15 10:57:35] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df6f1f9d0512.32036882 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:33:56] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77a4a3c514.66290717 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:33:57] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77a5e10ea6.83372031 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:33:59] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77a7234061.33358540 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:34:00] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77a81ca8c5.71939237 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:34:01] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77a9350759.28541606 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:34:02] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df77aa809049.10894037 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:37:11] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df7867ee5c69.39569072 url=/ method=GET ip=127.0.0.1
+[2026-04-15 11:42:07] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df798fae3fc3.89830460 url=/ method=GET ip=127.0.0.1
+[2026-04-15 12:10:04] ERROR: Call to undefined method Closure::__set_state() in D:\Apps\web\ultralean\apps\default\storage\cache\middleware.php:3 | request_id=69df801c27f144.42871630 url=/ method=GET ip=127.0.0.1

@@ -1,0 +1,2 @@
+[2026-04-12 19:48:33] ERROR: Call to undefined function App\Middleware\session() in /mnt/d/Development/Web/wwwroot/pol/apps/default/Middleware/AdminAuth.php:9 | request_id=69dbb0c0c4ff11.58597250 url=/admin/home method=GET ip=127.0.0.1
+[2026-04-12 19:48:35] ERROR: Call to undefined function App\Middleware\session() in /mnt/d/Development/Web/wwwroot/pol/apps/default/Middleware/AdminAuth.php:9 | request_id=69dbb0c2e92978.85743473 url=/admin/home method=GET ip=127.0.0.1

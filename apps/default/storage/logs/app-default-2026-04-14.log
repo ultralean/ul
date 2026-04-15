@@ -1,0 +1,2 @@
+[2026-04-14 02:42:44] ERROR: Call to undefined method Closure::__set_state() in /mnt/d/Development/Web/wwwroot/pol/apps/default/storage/cache/middleware.php:3 | request_id=69dda9a3d278b5.17148154 url=/admin/home method=GET ip=127.0.0.1
+[2026-04-14 03:44:46] ERROR: Call to undefined method Closure::__set_state() in /mnt/d/Development/Web/wwwroot/pol/apps/default/storage/cache/middleware.php:3 | request_id=69ddb82db57f06.77524641 url=/admin/home method=GET ip=127.0.0.1
