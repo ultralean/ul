@@ -114,7 +114,7 @@ require SYSTEM_PATH . '/core/Autoloader.php';
 
 // Set timezone from config file.
 // Do not change this value here. Update this value in config file.
-$timezone = config('timezone', 'UTC');
+$timezone = config('app.timezone', 'UTC');
 date_default_timezone_set($timezone);
 
 use UltraLean\Core\AutoLoader;
