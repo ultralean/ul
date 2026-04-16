@@ -8,9 +8,11 @@ class Controller
 {
     protected ?View $viewInstance = null;
     protected Request $request;
+    protected static bool $checkFiles;
 
     public function __construct()
     {
+        self::$checkFiles = config('view_check_files', false);
         $this->request = Request::instance();
     }
 
@@ -122,7 +124,7 @@ class Controller
     protected function getView(): View
     {
         if ($this->viewInstance === null) {
-            $this->viewInstance = new View(APP_PATH . '/views', false);
+            $this->viewInstance = new View(APP_PATH . '/views', self::$checkFiles);
         }
 
         return $this->viewInstance;

@@ -29,6 +29,19 @@ return [
         'timezone' => $timezone,
 
         /**
+         * Check if the view file exists before rendering.
+         * 
+         * When enabled, this will throw an exception if the view file is not found.
+         * 
+         * When disabled, the view file will be rendered without checking if it exists.
+         * 
+         * Recommended:
+         * - true  → for development
+         * - false → for production
+         */
+        'view_check_files' => false,
+
+        /**
          * Force all responses to be returned as JSON.
          *
          * When enabled, this overrides automatic response detection
