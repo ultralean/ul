@@ -249,10 +249,9 @@ class Router
                 $middlewares = $routeInfo[1]['middleware'] ?? [];
                 $vars = $routeInfo[2];
 
-                $mw = \UltraLean\Core\MiddlewareManager::instance();
-                if (!$mw->run($middlewares)) {
-                    return;
-                }
+if (!\UltraLean\Core\Middleware::run($middlewares)) {
+    return;
+}
 
                 // Static controller instance cache
                 static $instances = [];

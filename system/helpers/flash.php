@@ -1,4 +1,3 @@
-```php
 <?php
 /**
  * UltraLean Flash + Form Binding System
