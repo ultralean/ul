@@ -61,6 +61,15 @@ return [
         'force_json' => false,
     ],
 
+    /**
+     * Flash messages configuration
+     * 
+     * Flash messages are used to store messages that are displayed to the user after a redirect.
+     * 
+     * Recommended:
+     * - use_cookies: false → for stateful applications (session-based)
+     * - use_cookies: true  → for stateless applications (cookie-based)
+     */
     'flash' => [
         'use_cookies' => false, // only enable this if you are using stateless mode
         'cookie_key' => '_flash',
@@ -134,23 +143,21 @@ return [
 
     'i18n' => [
 
-        'enabled' => true,
-
-        'default' => 'en',
-        'fallback' => 'en',
-
+        // Global locale settings (used everywhere)
+        'default'   => 'en',
+        'fallback'  => 'en',
         'supported' => ['en', 'ur', 'ar'],
 
-        'path' => APP_PATH . '/lang',
-
-        'resolver' => [
-            'session' => true,
+        // Static translations (files), used for UI texts
+        'static' => [
+            'enabled' => true,
+            'path'    => APP_PATH . '/lang',
         ],
 
+        // Dynamic translations (database), used for dynamic data from database
+        // Models must have translation table and columns defined
         'database' => [
             'enabled' => true,
-            'strategy' => 'join',
-            'fallback_in_php' => true,
         ],
     ],
 ];

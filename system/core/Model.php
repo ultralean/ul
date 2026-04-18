@@ -3,10 +3,12 @@
 namespace UltraLean\Core;
 
 use PDO;
-use UltraLean\Core\DB;
+use UltraLean\Core\I18n\Translatable;
 
 abstract class Model
 {
+    use Translatable;
+
     protected static string $table;
     protected static string $primaryKey = 'id';
     protected static ?string $connection = null;
@@ -16,16 +18,11 @@ abstract class Model
     protected static string $createdAt = 'created_at';
     protected static string $updatedAt = 'updated_at';
 
-    // multilingual (optional)
-    protected static ?string $translationTable = null;
-    protected static string $translationForeignKey = '';
-    protected static string $localeColumn = 'locale';
-    protected static string $tableAlias = 't';
-    protected static string $translationAlias = 'tr';
-
-    // ⚡ caches
+    // ⚡ SQL cache
     protected static ?string $findSql = null;
     protected static ?string $deleteSql = null;
+    protected static array $findManySqlCache = [];
+
     protected static ?string $now = null;
 
     // =========================
@@ -37,55 +34,78 @@ abstract class Model
         return DB::conn(static::$connection);
     }
 
+    protected static function buildTranslatedSelect(string $baseSql, array $bindings = []): array
+    {
+        if (
+            !config('i18n.database.enabled') ||
+            !in_array(\UltraLean\Core\I18n\Translatable::class, class_uses(static::class))
+        ) {
+            return [$baseSql, $bindings];
+        }
+
+        $payload = static::translationPayload();
+
+        if (!$payload) {
+            return [$baseSql, $bindings];
+        }
+
+        $t = static::$tableAlias;
+
+        // replace SELECT *
+        $select = "$t.*," . implode(',', $payload['select']);
+        $sql = str_replace('SELECT *', "SELECT $select", $baseSql);
+
+        // add alias
+        $sql = str_replace(
+            'FROM ' . static::$table,
+            'FROM ' . static::$table . " $t",
+            $sql
+        );
+
+        // append joins
+        $sql .= ' ' . implode(' ', $payload['joins']);
+
+        // prepend bindings
+        $bindings = array_merge($payload['bindings'], $bindings);
+
+        return [$sql, $bindings];
+    }
+
     // =========================
     // 🔥 BASIC CRUD
     // =========================
 
     public static function find(int|string $id, array|string $columns = '*'): ?array
     {
-        // ⚡ FAST PATH (cached SQL)
-        if ($columns === '*' || $columns === ['*']) {
-            $sql = static::$findSql ??=
-                "SELECT * FROM " . static::$table .
-                " WHERE " . static::$primaryKey . " = ? LIMIT 1";
-
-            return DB::fetch($sql, [$id], static::$connection);
-        }
-
-        // ⚡ dynamic columns (no cache)
-        $cols = is_array($columns) ? implode(',', $columns) : $columns;
-
-        $sql = "SELECT $cols FROM " . static::$table .
+        $sql = "SELECT * FROM " . static::$table .
             " WHERE " . static::$primaryKey . " = ? LIMIT 1";
 
-        return DB::fetch($sql, [$id], static::$connection);
+        [$sql, $bindings] = static::buildTranslatedSelect($sql, [$id]);
+
+        return DB::fetch($sql, $bindings, static::$connection);
     }
 
     public static function findMany(array $ids, array|string $columns = '*'): array
     {
         if (empty($ids)) return [];
 
-        $cols = ($columns === '*' || $columns === ['*'])
-            ? '*'
-            : (is_array($columns) ? implode(',', $columns) : $columns);
-
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
-        $sql = "SELECT $cols FROM " . static::$table .
+        $sql = "SELECT * FROM " . static::$table .
             " WHERE " . static::$primaryKey . " IN ($placeholders)";
 
-        return DB::fetchAll($sql, $ids, static::$connection);
+        [$sql, $bindings] = static::buildTranslatedSelect($sql, $ids);
+
+        return DB::fetchAll($sql, $bindings, static::$connection);
     }
 
     public static function all(int $limit = 1000, array|string $columns = '*'): array
     {
-        $cols = ($columns === '*' || $columns === ['*'])
-            ? '*'
-            : (is_array($columns) ? implode(',', $columns) : $columns);
+        $sql = "SELECT * FROM " . static::$table . " LIMIT $limit";
 
-        $sql = "SELECT $cols FROM " . static::$table . " LIMIT $limit";
+        [$sql, $bindings] = static::buildTranslatedSelect($sql);
 
-        return DB::fetchAll($sql, [], static::$connection);
+        return DB::fetchAll($sql, $bindings, static::$connection);
     }
 
     public static function insert(array $data): int
@@ -93,10 +113,10 @@ abstract class Model
         $data = static::applyTimestamps($data, true);
 
         $keys = array_keys($data);
-        $fields = implode(',', $keys);
-        $placeholders = implode(',', array_fill(0, count($keys), '?'));
 
-        $sql = "INSERT INTO " . static::$table . " ($fields) VALUES ($placeholders)";
+        $sql = "INSERT INTO " . static::$table .
+            " (" . implode(',', $keys) . ") VALUES (" .
+            implode(',', array_fill(0, count($keys), '?')) . ")";
 
         DB::execute($sql, array_values($data), static::$connection);
 
@@ -108,35 +128,34 @@ abstract class Model
         if (empty($rows)) return false;
 
         $keys = array_keys($rows[0]);
-        $fields = implode(',', $keys);
+        $fieldCount = count($keys);
 
-        $placeholdersRow = '(' . implode(',', array_fill(0, count($keys), '?')) . ')';
-        $placeholders = implode(',', array_fill(0, count($rows), $placeholdersRow));
+        $rowPlaceholder = '(' . implode(',', array_fill(0, $fieldCount, '?')) . ')';
+        $placeholders = implode(',', array_fill(0, count($rows), $rowPlaceholder));
 
         $bindings = [];
 
         foreach ($rows as $row) {
             $row = static::applyTimestamps($row, true);
 
-            foreach ($row as $value) {
-                $bindings[] = $value;
+            foreach ($keys as $key) {
+                $bindings[] = $row[$key] ?? null;
             }
         }
 
-        $sql = "INSERT INTO " . static::$table . " ($fields) VALUES $placeholders";
+        $sql = "INSERT INTO " . static::$table .
+            " (" . implode(',', $keys) . ") VALUES $placeholders";
 
         return DB::execute($sql, $bindings, static::$connection);
     }
 
     public static function update(int|string $id, array $data): bool
     {
+        if (empty($data)) return true;
+
         $data = static::applyTimestamps($data, false);
 
-        $setParts = [];
-        foreach ($data as $k => $_) {
-            $setParts[] = "$k = ?";
-        }
-        $set = implode(',', $setParts);
+        $set = implode(',', array_map(fn($k) => "$k = ?", array_keys($data)));
 
         $sql = "UPDATE " . static::$table .
             " SET $set WHERE " . static::$primaryKey . " = ?";
@@ -163,25 +182,21 @@ abstract class Model
 
     public static function where(string $column, $value, array|string $columns = '*'): array
     {
-        $cols = ($columns === '*' || $columns === ['*'])
-            ? '*'
-            : (is_array($columns) ? implode(',', $columns) : $columns);
+        $sql = "SELECT * FROM " . static::$table . " WHERE $column = ?";
 
-        $sql = "SELECT $cols FROM " . static::$table . " WHERE $column = ?";
+        [$sql, $bindings] = static::buildTranslatedSelect($sql, [$value]);
 
-        return DB::fetchAll($sql, [$value], static::$connection);
+        return DB::fetchAll($sql, $bindings, static::$connection);
     }
 
     public static function firstWhere(string $column, $value, array|string $columns = '*'): ?array
     {
-        $cols = ($columns === '*' || $columns === ['*'])
-            ? '*'
-            : (is_array($columns) ? implode(',', $columns) : $columns);
-
-        $sql = "SELECT $cols FROM " . static::$table .
+        $sql = "SELECT * FROM " . static::$table .
             " WHERE $column = ? LIMIT 1";
 
-        return DB::fetch($sql, [$value], static::$connection);
+        [$sql, $bindings] = static::buildTranslatedSelect($sql, [$value]);
+
+        return DB::fetch($sql, $bindings, static::$connection);
     }
 
     public static function count(string $column = '*'): int
@@ -196,57 +211,12 @@ abstract class Model
     public static function exists(string $column, $value): bool
     {
         return (bool) DB::scalar(
-            "SELECT EXISTS(SELECT 1 FROM " . static::$table . " WHERE $column = ?)",
+            "SELECT EXISTS(
+                SELECT 1 FROM " . static::$table . " WHERE $column = ?
+            )",
             [$value],
             static::$connection
         );
-    }
-
-    // =========================
-    // 🌍 MULTI-LANGUAGE
-    // =========================
-
-    public static function findWithLocale(int|string $id, string $locale): ?array
-    {
-        if (!config('i18n.enabled') || !static::$translationTable) {
-            return static::find($id);
-        }
-
-        $sql = "
-            SELECT t.*, tr.*
-            FROM " . static::$table . " t
-            LEFT JOIN " . static::$translationTable . " tr
-                ON tr." . static::$translationForeignKey . " = t." . static::$primaryKey . "
-                AND tr." . static::$localeColumn . " = ?
-            WHERE t." . static::$primaryKey . " = ?
-            LIMIT 1
-        ";
-
-        return DB::fetch($sql, [$locale, $id], static::$connection);
-    }
-
-    public static function insertWithTranslations(array $data, array $translations): int
-    {
-        return DB::transaction(function () use ($data, $translations) {
-
-            $id = static::insert($data);
-
-            if (config('i18n.enabled') && static::$translationTable) {
-                foreach ($translations as $locale => $row) {
-
-                    $row[static::$translationForeignKey] = $id;
-                    $row[static::$localeColumn] = $locale;
-
-                    DB::execute(
-                        static::buildInsertSQL(static::$translationTable, $row),
-                        array_values($row),
-                        static::$connection
-                    );
-                }
-            }
-
-            return $id;
-        }, static::$connection);
     }
 
     // =========================
@@ -277,15 +247,6 @@ abstract class Model
         }
 
         return $data;
-    }
-
-    protected static function buildInsertSQL(string $table, array $data): string
-    {
-        $keys = array_keys($data);
-        $fields = implode(',', $keys);
-        $placeholders = implode(',', array_fill(0, count($keys), '?'));
-
-        return "INSERT INTO $table ($fields) VALUES ($placeholders)";
     }
 
     public static function resetNow(): void

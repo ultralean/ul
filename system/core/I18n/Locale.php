@@ -4,70 +4,128 @@ namespace UltraLean\Core\I18n;
 
 class Locale
 {
-    protected static ?string $currentLocale = null;
+    protected static ?string $locale = null;
+
+    protected static array $supported = [];
+    protected static string $default;
 
     /**
-     * Set locale manually
+     * Initialize locale for the request
      */
-    public static function set(string $locale): void
+    public static function init(): void
     {
-        if (!self::isSupported($locale)) {
+        if (self::$locale !== null) {
             return;
         }
 
-        self::$currentLocale = $locale;
+        // Load config once
+        self::$supported = config('i18n.supported', ['en']);
+        self::$default   = config('i18n.default', 'en');
 
-        if (config('i18n.resolver.session')) {
+        // 1. Session (user choice)
+        if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['app_locale'])) {
+            $sessionLocale = $_SESSION['app_locale'];
+
+            if (in_array($sessionLocale, self::$supported, true)) {
+                self::$locale = $sessionLocale;
+                return;
+            }
+        }
+
+        // 2. Default (config)
+        if (in_array(self::$default, self::$supported, true)) {
+            self::$locale = self::$default;
+            return;
+        }
+
+        // 3. Hard fallback (guaranteed safe)
+        self::$locale = self::$supported[0] ?? 'en';
+    }
+
+    /**
+     * Ensure config is loaded (used internally)
+     */
+    protected static function ensureLoaded(): void
+    {
+        if (empty(self::$supported)) {
+            self::$supported = config('i18n.supported', ['en']);
+            self::$default   = config('i18n.default', 'en');
+        }
+    }
+
+    /**
+     * Get current locale
+     */
+    public static function get(): string
+    {
+        if (self::$locale === null) {
+            self::init();
+        }
+
+        return self::$locale;
+    }
+
+    /**
+     * Set locale
+     */
+    public static function set(string $locale): void
+    {
+        self::ensureLoaded();
+
+        if (!in_array($locale, self::$supported, true)) {
+            return;
+        }
+
+        self::$locale = $locale;
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
             $_SESSION['app_locale'] = $locale;
         }
     }
 
     /**
-     * Resolve locale (FAST + deterministic)
-     */
-    public static function get(): string
-    {
-        if (!config('i18n.enabled')) {
-            return config('i18n.default', 'en');
-        }
-
-        if (self::$currentLocale) {
-            return self::$currentLocale;
-        }
-
-        // 1. Session (fast)
-        if (config('i18n.resolver.session') && !empty($_SESSION['app_locale'])) {
-            $locale = $_SESSION['app_locale'];
-
-            if (self::isSupported($locale)) {
-                return self::$currentLocale = $locale;
-            }
-        }
-
-        // 2. Default (NO DB CALL)
-        return self::$currentLocale = config('i18n.default', 'en');
-    }
-
-    /**
-     * Validate supported locales (O(1))
-     */
-    protected static function isSupported(string $locale): bool
-    {
-        static $map = null;
-
-        if ($map === null) {
-            $map = array_flip(config('i18n.supported', ['en']));
-        }
-
-        return isset($map[$locale]);
-    }
-
-    /**
-     * Reset (rare use)
+     * Clear locale (reset to default on next request)
      */
     public static function clear(): void
     {
-        self::$currentLocale = null;
-        unset($_SESSION['app_locale']);
+        self::$locale = null;
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            unset($_SESSION['app_locale']);
+        }
+    }
+
+    /**
+     * Check current locale
+     */
+    public static function is(string $locale): bool
+    {
+        return self::get() === $locale;
+    }
+
+    /**
+     * Switch locale and redirect
+     */
+    public static function switch(string $locale): void
+    {
+        self::ensureLoaded();
+
+        // Validate or fallback
+        if (!in_array($locale, self::$supported, true)) {
+            $locale = self::$default;
+        }
+
+        self::set($locale);
+
+        // Prefer explicit redirect param over referer
+        $redirect = $_GET['redirect'] ?? ($_SERVER['HTTP_REFERER'] ?? '/');
+
+        // Security: allow only internal paths
+        if (!is_string($redirect) || !str_starts_with($redirect, '/')) {
+            $redirect = '/';
+        }
+
+        header('Location: ' . $redirect);
+        exit;
     }
 }

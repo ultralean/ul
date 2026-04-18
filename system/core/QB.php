@@ -3,6 +3,8 @@
 namespace UltraLean\Core;
 
 use UltraLean\Core\DB;
+use UltraLean\Core\I18n\Translatable;
+use UltraLean\Core\I18n\Locale;
 
 class QB
 {
@@ -17,7 +19,6 @@ class QB
     protected ?int $limit = null;
     protected ?int $offset = null;
 
-    protected ?string $locale = null;
     protected ?string $connection = null;
 
     // ⚡ performance layer
@@ -29,6 +30,10 @@ class QB
     {
         $this->connection = $connection;
     }
+
+    // =========================
+    // FACTORY
+    // =========================
 
     public static function table(string $table): self
     {
@@ -42,13 +47,13 @@ class QB
         $qb = new self($modelClass::$connection ?? null);
 
         $qb->model = $modelClass;
-        $qb->table = $modelClass::$table . ' ' . $modelClass::$tableAlias;
+        $qb->table = $modelClass::$table . ' t';
 
         return $qb;
     }
 
     // =========================
-    // MUTATORS (DIRTY TRACKING)
+    // DIRTY TRACKING
     // =========================
 
     protected function markAsDirty(): void
@@ -57,12 +62,34 @@ class QB
         $this->compiled = null;
     }
 
+    // =========================
+    // SELECT / FROM
+    // =========================
+
     public function select(array|string $columns): self
     {
         $this->select = is_array($columns) ? $columns : [$columns];
         $this->markAsDirty();
         return $this;
     }
+
+    public function selectRaw(string $sql): self
+    {
+        $this->select = [$sql];
+        $this->markAsDirty();
+        return $this;
+    }
+
+    public function from(string $table): self
+    {
+        $this->table = $table;
+        $this->markAsDirty();
+        return $this;
+    }
+
+    // =========================
+    // WHERE
+    // =========================
 
     public function where(string $column, string $operator, $value): self
     {
@@ -82,6 +109,7 @@ class QB
 
         $placeholders = implode(',', array_fill(0, count($values), '?'));
         $this->where[] = "$column IN ($placeholders)";
+
         foreach ($values as $v) {
             $this->bindings[] = $v;
         }
@@ -89,6 +117,10 @@ class QB
         $this->markAsDirty();
         return $this;
     }
+
+    // =========================
+    // JOINS
+    // =========================
 
     public function join(string $table, string $on): self
     {
@@ -103,6 +135,22 @@ class QB
         $this->markAsDirty();
         return $this;
     }
+
+    public function joinRaw(string $sql, array $bindings = []): self
+    {
+        $this->joins[] = $sql;
+
+        foreach ($bindings as $b) {
+            $this->bindings[] = $b;
+        }
+
+        $this->markAsDirty();
+        return $this;
+    }
+
+    // =========================
+    // ORDER / LIMIT / OFFSET
+    // =========================
 
     public function orderBy(string $col, string $dir = 'ASC'): self
     {
@@ -125,44 +173,47 @@ class QB
         return $this;
     }
 
-    public function locale(string $locale): self
-    {
-        $this->locale = $locale;
-        $this->markAsDirty();
-        return $this;
-    }
-
     // =========================
-    // TRANSLATION (RUN ONCE)
+    // TRANSLATION HOOK (NO LOGIC HERE)
     // =========================
-
     protected function applyTranslation(): void
     {
         if ($this->translationApplied) return;
 
         $this->translationApplied = true;
 
-        // 🚀 ZERO OVERHEAD EXIT
-        if (!config('i18n.enabled') || !$this->locale || !$this->model) {
+        if (
+            !$this->model ||
+            !config('i18n.database.enabled') ||
+            !in_array(\UltraLean\Core\I18n\Translatable::class, class_uses($this->model))
+        ) {
             return;
         }
 
-        $m = $this->model;
+        $payload = $this->model::translationPayload();
 
-        if (!$m::$translationTable) return;
+        if (!$payload) return;
 
-        $t = $m::$tableAlias;
-        $tr = $m::$translationAlias;
+        // joins
+        foreach ($payload['joins'] as $join) {
+            $this->joins[] = $join;
+        }
 
-        $this->joins[] = "LEFT JOIN {$m::$translationTable} $tr
-        ON $tr.{$m::$translationForeignKey} = $t.{$m::$primaryKey}
-        AND $tr.{$m::$localeColumn} = ?";
+        // bindings
+        foreach ($payload['bindings'] as $b) {
+            $this->bindings[] = $b;
+        }
 
-        $this->bindings[] = $this->locale;
+        // select
+        if ($this->select === ['*']) {
+            $this->select = [$this->table . '.*'];
+        }
+
+        $this->select = array_merge($this->select, $payload['select']);
     }
 
     // =========================
-    // CORE COMPILER (CACHED)
+    // COMPILER
     // =========================
 
     protected function compile(): array
@@ -173,7 +224,8 @@ class QB
 
         $this->applyTranslation();
 
-        $sql = "SELECT " . implode(',', $this->select) . " FROM $this->table";
+        $sql = "SELECT " . implode(',', $this->select)
+            . " FROM " . $this->table;
 
         if ($this->joins) {
             $sql .= ' ' . implode(' ', $this->joins);
@@ -188,11 +240,11 @@ class QB
         }
 
         if ($this->limit !== null) {
-            $sql .= " LIMIT $this->limit";
+            $sql .= " LIMIT {$this->limit}";
         }
 
         if ($this->offset !== null) {
-            $sql .= " OFFSET $this->offset";
+            $sql .= " OFFSET {$this->offset}";
         }
 
         $this->compiled = [$sql, $this->bindings];
@@ -202,7 +254,55 @@ class QB
     }
 
     // =========================
-    // DEBUG / DEV TOOLS (NO OVERHEAD IN PROD)
+    // EXECUTION
+    // =========================
+
+    public function get(): array
+    {
+        [$sql, $bindings] = $this->compile();
+        return DB::fetchAll($sql, $bindings, $this->connection);
+    }
+
+    public function first(): ?array
+    {
+        $this->limit(1);
+        [$sql, $bindings] = $this->compile();
+
+        return DB::fetch($sql, $bindings, $this->connection);
+    }
+
+    public function count(): int
+    {
+        $this->select = ['COUNT(*)'];
+
+        [$sql, $bindings] = $this->compile();
+
+        return (int) DB::scalar($sql, $bindings, $this->connection);
+    }
+
+    public function exists(): bool
+    {
+        return $this->count() > 0;
+    }
+
+    public function cursor(callable $callback): void
+    {
+        [$sql, $bindings] = $this->compile();
+
+        $stmt = DB::query($sql, $bindings, $this->connection);
+
+        while ($row = $stmt->fetch()) {
+            $callback($row);
+        }
+    }
+
+    public function raw(string $sql, array $bindings = []): array
+    {
+        return DB::fetchAll($sql, $bindings, $this->connection);
+    }
+
+    // =========================
+    // DEBUG (no production cost)
     // =========================
 
     public function toSql(): string
@@ -245,53 +345,10 @@ class QB
     {
         [$sql, $bindings] = $this->compile();
 
-        return DB::fetchAll('EXPLAIN ' . $sql, $bindings, $this->connection);
-    }
-
-    // =========================
-    // EXECUTION (LEAN + FAST)
-    // =========================
-
-    public function get(): array
-    {
-        [$sql, $bindings] = $this->compile();
-        return DB::fetchAll($sql, $bindings, $this->connection);
-    }
-
-    public function first(): ?array
-    {
-        $this->limit(1);
-        [$sql, $bindings] = $this->compile();
-
-        return DB::fetch($sql, $bindings, $this->connection);
-    }
-
-    public function raw(string $sql, array $bindings = []): array
-    {
-        return DB::fetchAll($sql, $bindings, $this->connection);
-    }
-
-    public function count(): int
-    {
-        $this->select = ['COUNT(*)'];
-        [$sql, $bindings] = $this->compile();
-
-        return (int) DB::scalar($sql, $bindings, $this->connection);
-    }
-
-    public function exists(): bool
-    {
-        return $this->count() > 0;
-    }
-
-    public function cursor(callable $callback): void
-    {
-        [$sql, $bindings] = $this->compile();
-
-        $stmt = DB::query($sql, $bindings, $this->connection);
-
-        while ($row = $stmt->fetch()) {
-            $callback($row);
-        }
+        return DB::fetchAll(
+            'EXPLAIN ' . $sql,
+            $bindings,
+            $this->connection
+        );
     }
 }

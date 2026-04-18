@@ -1,4 +1,5 @@
 <?php
+
 /**
  * UltraLean Flash + Form Binding System
  *
@@ -29,10 +30,6 @@ if (!defined('FLASH_COOKIE_SECRET')) {
 // =========================
 // 🚀 INIT
 // =========================
-
-if (!FLASH_USE_COOKIES && session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
 
 // =========================
 // 🔁 LIFECYCLE

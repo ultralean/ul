@@ -123,6 +123,7 @@ use UltraLean\Core\Logger;
 use UltraLean\Core\ErrorHandler;
 use UltraLean\Core\Router;
 use UltraLean\Core\DBManager;
+use UltraLean\Core\I18n\Locale;
 
 /**
  * Register autoloader
@@ -165,14 +166,16 @@ require SYSTEM_PATH . '/helpers/flash.php';
  * =========================
  */
 
-// Start session ONLY if needed
-if (!FLASH_USE_COOKIES && session_status() === PHP_SESSION_NONE) {
+// Start session ONLY if not CLI
+if (!php_sapi_name() === 'cli') {
     session_start();
 }
 
-// Initialize flash lifecycle (VERY IMPORTANT)
+// Initialize flash lifecycle
 flash_init();
 
+// Initialize locale
+Locale::init();
 
 /**
  * Load routes

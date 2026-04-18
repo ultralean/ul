@@ -6,80 +6,63 @@ class Translator
 {
     protected string $locale;
     protected string $fallback;
-    protected string $langPath;
+    protected string $path;
 
     protected array $loaded = [];
-    protected array $translations = [];
+    protected array $data = [];
 
     public function __construct()
     {
         $this->locale   = Locale::get();
-        $this->fallback = config('i18n.fallback', 'en');
-        $this->langPath = rtrim(config('i18n.path'), '/');
+        $this->fallback = config('i18n.fallback');
+        $this->path     = rtrim(config('i18n.static.path'), '/');
     }
 
-    public function get(string $key, array $replacements = []): string
+    public function get(string $key, array $replace = []): string
     {
-        if (!config('i18n.enabled')) {
+        if (!config('i18n.static.enabled')) {
             return $key;
         }
 
-        [$group, $nestedKey] = $this->parseKey($key);
+        [$group, $inner] = explode('.', $key, 2) + [1 => null];
 
         $value =
-            $this->arrayGet($this->loadGroup($group, $this->locale), $nestedKey)
-            ?? $this->arrayGet($this->loadGroup($group, $this->fallback), $nestedKey)
+            $this->getFrom($group, $this->locale, $inner)
+            ?? $this->getFrom($group, $this->fallback, $inner)
             ?? $key;
 
-        return $this->applyReplacements($value, $replacements);
-    }
-
-    protected function loadGroup(string $group, string $locale): array
-    {
-        if (isset($this->loaded[$locale][$group])) {
-            return $this->translations[$locale][$group];
+        foreach ($replace as $k => $v) {
+            $value = str_replace(":$k", $v, $value);
         }
 
-        $file = "{$this->langPath}/{$locale}/{$group}.php";
+        return $value;
+    }
 
-        $this->translations[$locale][$group] =
+    protected function getFrom($group, $locale, $key)
+    {
+        $data = $this->load($group, $locale);
+
+        foreach (explode('.', $key ?? '') as $seg) {
+            if (!$seg || !isset($data[$seg])) return null;
+            $data = $data[$seg];
+        }
+
+        return $data;
+    }
+
+    protected function load($group, $locale): array
+    {
+        if (isset($this->loaded[$locale][$group])) {
+            return $this->data[$locale][$group];
+        }
+
+        $file = "{$this->path}/{$locale}/{$group}.php";
+
+        $this->data[$locale][$group] =
             is_file($file) ? include $file : [];
 
         $this->loaded[$locale][$group] = true;
 
-        return $this->translations[$locale][$group];
-    }
-
-    protected function parseKey(string $key): array
-    {
-        $parts = explode('.', $key, 2);
-        return [$parts[0], $parts[1] ?? ''];
-    }
-
-    protected function arrayGet(array $array, string $key)
-    {
-        if (!$key) return null;
-
-        foreach (explode('.', $key) as $segment) {
-            if (!isset($array[$segment])) {
-                return null;
-            }
-            $array = $array[$segment];
-        }
-
-        return $array;
-    }
-
-    protected function applyReplacements(string $text, array $replacements): string
-    {
-        foreach ($replacements as $k => $v) {
-            $text = str_replace(":$k", $v, $text);
-        }
-        return $text;
-    }
-
-    public function setLocale(string $locale): void
-    {
-        $this->locale = $locale;
+        return $this->data[$locale][$group];
     }
 }
