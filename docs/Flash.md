@@ -70,7 +70,7 @@ Supports:
 ```php
 'flash' => [
     'use_cookies' => false,
-    'cookie_key' => '_flash',
+    'cookie_key' => '_ul_flash',
     'cookie_secret' => 'change_this_secret',
 ],
 ```
@@ -83,7 +83,7 @@ Supports:
 
 ```php
 define('FLASH_USE_COOKIES', config('flash.use_cookies', false));
-define('FLASH_COOKIE_KEY', config('flash.cookie_key', '_flash'));
+define('FLASH_COOKIE_KEY', config('flash.cookie_key', '_ul_flash'));
 define('FLASH_COOKIE_SECRET', config('flash.cookie_secret', 'change_this_secret'));
 
 require SYSTEM_PATH . '/helpers/flash.php';
