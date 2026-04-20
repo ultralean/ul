@@ -4,16 +4,17 @@ namespace UltraLean\Core;
 
 use RuntimeException;
 
-class Controller
+abstract class Controller
 {
     protected ?View $viewInstance = null;
-    protected Request $request;
+    protected ?Request $request = null;
     protected static bool $checkFiles;
 
     public function __construct()
     {
-        self::$checkFiles = config('view_check_files', false);
-        $this->request = Request::instance();
+        if (!isset(self::$checkFiles)) {
+            self::$checkFiles = config('view_check_files', false);
+        }
     }
 
     public function callAction(string $method, array $params = [])
@@ -25,33 +26,30 @@ class Controller
         return $this->$method(...$params);
     }
 
-    /* =========================
-     * REQUEST SHORTCUTS
-     * ========================= */
+    protected function request(): Request
+    {
+        return $this->request ??= Request::instance();
+    }
 
     protected function input(string $key, $default = null)
     {
-        return $this->request->input($key, $default);
+        return $this->request()->input($key, $default);
     }
 
     protected function get(string $key, $default = null)
     {
-        return $this->request->get($key, $default);
+        return $this->request()->get($key, $default);
     }
 
     protected function post(string $key, $default = null)
     {
-        return $this->request->post($key, $default);
+        return $this->request()->post($key, $default);
     }
 
     protected function json(): array
     {
-        return $this->request->json();
+        return $this->request()->json();
     }
-
-    /* =========================
-     * RESPONSE SHORTCUTS
-     * ========================= */
 
     protected function redirect(string $url, int $status = 302): void
     {
@@ -70,24 +68,17 @@ class Controller
 
     protected function back(): void
     {
-        $url = $_SERVER['HTTP_REFERER'] ?? '/';
-        Response::redirect($url);
+        Response::redirect($_SERVER['HTTP_REFERER'] ?? '/');
     }
 
     protected function url(string $path = ''): string
     {
-        static $base;
+        static $base = null;
 
-        if ($base === null) {
-            $base = rtrim(config('base_url'), '/');
-        }
+        $base ??= rtrim(config('base_url'), '/');
 
         return $base . '/' . ltrim($path, '/');
     }
-
-    /* =========================
-     * VIEW (CORRECT + SAFE)
-     * ========================= */
 
     protected function view(string $view, array $data = []): void
     {
@@ -96,13 +87,12 @@ class Controller
 
     protected function rawView(string $view, array $data = []): void
     {
-        if ($data) extract($data, EXTR_SKIP);
-
-        static $basePath;
-
-        if ($basePath === null) {
-            $basePath = APP_PATH . '/views/';
+        if ($data) {
+            extract($data, EXTR_SKIP);
         }
+
+        static $basePath = null;
+        $basePath ??= APP_PATH . '/views/';
 
         $path = $view[0] === '/' ? substr($view, 1) : $view;
 
@@ -113,20 +103,8 @@ class Controller
         })());
     }
 
-    /**
-     * Get View instance (lazy, per-controller)
-     * 
-     * IMPORTANT:
-     * - NOT static (View is stateful)
-     * - Reused per controller instance only
-     * - Safe for sections/layout/components
-     */
     protected function getView(): View
     {
-        if ($this->viewInstance === null) {
-            $this->viewInstance = new View(APP_PATH . '/views', self::$checkFiles);
-        }
-
-        return $this->viewInstance;
+        return $this->viewInstance ??= new View(APP_PATH . '/views', self::$checkFiles);
     }
 }

@@ -12,7 +12,12 @@ declare(strict_types=1);
 /**
  * Define the request ID, this will be used to identify the request
  */
-define('REQUEST_ID', uniqid('', true));
+define('REQUEST_ID', bin2hex(random_bytes(8)));
+
+/**
+ * Define the flash secret, this will be used to encrypt the flash messages
+ */
+define('FLASH_SECRET', bin2hex(random_bytes(32)));
 
 /**
  * Define the application name, this will be used to identify the application
@@ -56,17 +61,11 @@ function config(?string $key = null, mixed $default = null): mixed
 {
     static $config;
     static $cache = [];
-    $config_file = APP_PATH . '/config.php';
 
-    // Load config once
     if ($config === null) {
-        if (!file_exists($config_file)) {
-            die('Config file not found.');
-        }
-        $config = require $config_file;
+        $config = require APP_PATH . '/config.php';
     }
 
-    // Return full config if no key provided
     if ($key === null) {
         return $config;
     }
@@ -75,13 +74,15 @@ function config(?string $key = null, mixed $default = null): mixed
         return $cache[$key];
     }
 
-    // Support dot notation for nested keys
-    $keys = explode('.', $key);
+    // FAST PATH (no dot)
+    if (!str_contains($key, '.')) {
+        return $cache[$key] = $config[$key] ?? $default;
+    }
+
     $value = $config;
 
-    foreach ($keys as $k) {
-        if (!is_array($value) || !array_key_exists($k, $value)) {
-            // Return default value if key does not exist
+    foreach (explode('.', $key) as $k) {
+        if (!isset($value[$k])) {
             return $default;
         }
         $value = $value[$k];
@@ -199,7 +200,7 @@ if (config('security.cors.enabled', false)) {
 /**
  * Load routes
  */
-require APP_PATH . '/routes/web.php';
+Router::boot();
 
 /**
  * Dispatch router

@@ -2,19 +2,17 @@
 
 namespace UltraLean\Core;
 
-use UltraLean\Core\Uploader;
-
 class Request
 {
+    protected static ?self $instance = null;
+
     protected array $query;
     protected array $body;
     protected array $files;
     protected array $server;
 
     protected ?array $json = null;
-    protected array $headerCache = [];
-
-    protected static ?self $instance = null;
+    protected array $headers = [];
 
     public function __construct()
     {
@@ -29,15 +27,11 @@ class Request
         return self::$instance ??= new self();
     }
 
-    /* =========================
-     * INPUT
-     * ========================= */
-
     public function input(string $key, $default = null)
     {
         return $this->body[$key]
             ?? $this->query[$key]
-            ?? $this->json()[$key]
+            ?? ($this->json()[$key] ?? null)
             ?? $default;
     }
 
@@ -55,9 +49,8 @@ class Request
     {
         if ($this->json === null) {
             $raw = file_get_contents('php://input');
-            $this->json = $raw ? (json_decode($raw, true) ?: []) : [];
+            $this->json = $raw ? json_decode($raw, true) ?? [] : [];
         }
-
         return $this->json;
     }
 
@@ -66,10 +59,6 @@ class Request
         return $this->body + $this->query + $this->json();
     }
 
-    /* =========================
-     * META
-     * ========================= */
-
     public function method(): string
     {
         return $this->server['REQUEST_METHOD'] ?? 'GET';
@@ -77,12 +66,8 @@ class Request
 
     public function header(string $key): ?string
     {
-        if (isset($this->headerCache[$key])) {
-            return $this->headerCache[$key];
-        }
-
-        $k = 'HTTP_' . strtoupper(str_replace('-', '_', $key));
-        return $this->headerCache[$key] = $this->server[$k] ?? null;
+        return $this->headers[$key]
+            ??= $this->server['HTTP_' . strtoupper(str_replace('-', '_', $key))] ?? null;
     }
 
     public function isJson(): bool
@@ -103,14 +88,8 @@ class Request
     public function path(): string
     {
         $uri = $this->uri();
-        $pos = strpos($uri, '?');
-
-        return $pos === false ? $uri : substr($uri, 0, $pos);
+        return strtok($uri, '?');
     }
-
-    /* =========================
-     * FILES
-     * ========================= */
 
     public function file(string $key): ?array
     {
@@ -120,10 +99,5 @@ class Request
     public function files(): array
     {
         return $this->files;
-    }
-
-    public function uploader(string $key): Uploader
-    {
-        return Uploader::file($this->file($key) ?? []);
     }
 }

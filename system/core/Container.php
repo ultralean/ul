@@ -2,10 +2,11 @@
 
 namespace UltraLean\Core;
 
-class Container
+final class Container
 {
-    protected static array $bindings = [];
-    protected static array $instances = [];
+    private static array $bindings = [];
+    private static array $instances = [];
+    private static array $shared = [];
 
     public static function bind(string $key, callable $resolver): void
     {
@@ -14,24 +15,26 @@ class Container
 
     public static function singleton(string $key, callable $resolver): void
     {
-        self::$bindings[$key] = function () use ($key, $resolver) {
-            return self::$instances[$key] ??= $resolver();
-        };
+        self::$bindings[$key] = $resolver;
+        self::$shared[$key] = true;
     }
 
     public static function get(string $key)
     {
-        // 🔥 cached instance
         if (isset(self::$instances[$key])) {
             return self::$instances[$key];
         }
 
-        // 🔥 bound resolver
         if (isset(self::$bindings[$key])) {
-            return self::$instances[$key] = self::$bindings[$key]();
+            $object = self::$bindings[$key]();
+
+            if (isset(self::$shared[$key])) {
+                self::$instances[$key] = $object;
+            }
+
+            return $object;
         }
 
-        // 🔥 fallback (no reflection)
         return self::$instances[$key] = new $key();
     }
 }

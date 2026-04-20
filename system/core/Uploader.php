@@ -1,6 +1,6 @@
 <?php
 
-namespace UltraLean\Core\Media;
+namespace UltraLean\Core;
 
 final class Uploader
 {

@@ -10,7 +10,7 @@
  * 6. I18n configuration
  */
 
-$webroot = getcwd(); // Please don't change this as it is set automatically
+$webroot = getcwd(); // The public directory (public_html, public, htdocs, www, wwwroot, etc.) which contains index.php
 
 return [
 
@@ -80,9 +80,9 @@ return [
      * - use_cookies: true  → for stateless applications (cookie-based)
      */
     'flash' => [
-        'use_cookies' => false, // only enable this if you are using stateless mode
+        'use_cookies' => false, // only enable this if you are using stateless mode (no sessions) e.g. API
         'cookie_key' => '_ul_flash',
-        'cookie_secret' => bin2hex(random_bytes(32)),
+        'cookie_secret' => FLASH_SECRET,
     ],
 
     /**

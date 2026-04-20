@@ -2,33 +2,59 @@
 
 namespace UltraLean\Core;
 
-use RuntimeException;
-
 class Middleware
 {
     private static array $map = [];
-    private static bool $loaded = false;
 
-    /**
-     * Load middleware map (FAST PATH)
-     */
     private static function load(): void
     {
-        if (self::$loaded) return;
+        if (self::$map) return;
 
-        $cacheFile = STORAGE_PATH . '/cache/middleware.php';
+        $cacheDir  = STORAGE_PATH . '/cache';
+        $cacheFile = $cacheDir . '/middleware.php';
+        $hashFile  = $cacheDir . '/middleware.hash';
 
-        // ✅ 1. Load from cache (FASTEST)
-        if (is_file($cacheFile)) {
-            self::$map = require $cacheFile;
-            self::$loaded = true;
-            return;
+        // Ensure cache dir exists
+        if (!is_dir($cacheDir)) {
+            mkdir($cacheDir, 0777, true);
         }
 
-        // ❗ 2. Build cache (ONLY ONCE)
+        // 🔥 Generate hash from middleware files (FAST + ACCURATE)
+        $files = glob(APP_PATH . '/Middleware/*.php') ?: [];
+
+        $hashData = '';
+
+        foreach ($files as $file) {
+            $hashData .= filemtime($file);
+        }
+
+        $currentHash = md5($hashData);
+
+        // ✅ FAST PATH: cache valid
+        if (is_file($cacheFile) && is_file($hashFile)) {
+            if (file_get_contents($hashFile) === $currentHash) {
+                self::$map = require $cacheFile;
+                return;
+            }
+        }
+
+        // ❗ REBUILD CACHE
+        self::$map = self::buildCache($files);
+
+        // Write cache (OPcache friendly)
+        file_put_contents(
+            $cacheFile,
+            '<?php return ' . var_export(self::$map, true) . ';'
+        );
+
+        file_put_contents($hashFile, $currentHash);
+    }
+
+    private static function buildCache(array $files): array
+    {
         $map = [];
 
-        foreach (glob(APP_PATH . '/Middleware/*.php') as $file) {
+        foreach ($files as $file) {
 
             require_once $file;
 
@@ -37,93 +63,71 @@ class Middleware
             if (class_exists($class) && method_exists($class, 'handle')) {
                 $name = basename($file, '.php');
 
-                // ✅ store ONLY class name (no closures!)
                 $map[$name] = $class;
             }
         }
 
-        // Ensure cache dir
-        if (!is_dir(STORAGE_PATH . '/cache')) {
-            mkdir(STORAGE_PATH . '/cache', 0777, true);
-        }
-
-        // ✅ Write cache (pure PHP array = OPcache friendly)
-        file_put_contents(
-            $cacheFile,
-            '<?php return ' . var_export($map, true) . ';'
-        );
-
-        self::$map = $map;
-        self::$loaded = true;
+        return $map;
     }
 
-    /**
-     * Run middleware stack (HOT PATH)
-     */
-    public static function run(array $names): bool
+    public static function compile(array $names, $handler): callable
     {
         self::load();
 
-        if (!$names) return true;
+        $next = self::resolveHandler($handler);
 
-        $request = Request::instance();
+        foreach (array_reverse($names) as $name) {
 
-        foreach ($names as $name) {
-
-            /* =========================
-             * THROTTLE (INLINE, FAST)
-             * ========================= */
+            // THROTTLE INLINE (NO CLASS)
             if (str_starts_with($name, 'throttle:')) {
 
-                // Parse "throttle:5,60"
-                $parts = explode(':', $name, 2);
+                [$max, $sec] = array_map('intval', explode(',', explode(':', $name)[1]));
 
-                if (!isset($parts[1])) {
-                    throw new RuntimeException("Invalid throttle definition: {$name}");
-                }
+                $next = function (...$args) use ($next, $max, $sec) {
+                    $ip = $_SERVER['REMOTE_ADDR'] ?? 'guest';
 
-                [$max, $seconds] = array_map(
-                    'intval',
-                    explode(',', $parts[1]) + [0, 0]
-                );
+                    if (!rate_limit($ip, $max, $sec)) {
+                        Response::error(429, 'Too Many Requests');
+                    }
 
-                if ($max <= 0 || $seconds <= 0) {
-                    throw new RuntimeException("Invalid throttle values: {$name}");
-                }
+                    return $next(...$args);
+                };
 
-                // Build smart key (IP + path + method)
-                $ip = $_SERVER['REMOTE_ADDR'] ?? 'guest';
-
-                // Use normalized path (avoid query string abuse)
-                $uri = $request->path();
-
-                $method = $request->method();
-
-                $key = $ip . '|' . $uri . '|' . $method;
-
-                if (!rate_limit($key, $max, $seconds)) {
-                    \UltraLean\Core\Response::error(429, 'Too Many Requests');
-                }
-
-                continue; // skip normal middleware resolution
+                continue;
             }
 
-            /* =========================
-             * NORMAL MIDDLEWARE
-             * ========================= */
-            $class = self::$map[$name] ?? null;
+            $class = self::$map[$name];
 
-            if (!$class) {
-                throw new RuntimeException("Middleware '{$name}' not found.");
-            }
+            $next = function (...$args) use ($class, $next) {
+                $instance = new $class();
 
-            $instance = new $class();
+                if ($instance->handle(Request::instance()) === false) {
+                    return null;
+                }
 
-            if ($instance->handle($request) === false) {
-                return false;
-            }
+                return $next(...$args);
+            };
         }
 
-        return true;
+        return $next;
+    }
+
+    private static function resolveHandler($handler): callable
+    {
+        if (is_array($handler)) {
+            return function (...$args) use ($handler) {
+                static $instances = [];
+
+                [$class, $method] = $handler;
+
+                if (!isset($instances[$class])) {
+                    $instances[$class] = new $class();
+                }
+
+                return $instances[$class]->$method(...$args);
+            };
+        }
+
+        return $handler;
     }
 }
