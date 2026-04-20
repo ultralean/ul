@@ -10,124 +10,98 @@ class Middleware
     {
         if (self::$map) return;
 
-        $cacheDir  = STORAGE_PATH . '/cache';
+        $cacheDir = STORAGE_PATH . '/cache';
         $cacheFile = $cacheDir . '/middleware.php';
         $hashFile  = $cacheDir . '/middleware.hash';
 
-        // Ensure cache dir exists
-        if (!is_dir($cacheDir)) {
-            mkdir($cacheDir, 0777, true);
-        }
-
-        // 🔥 Generate hash from middleware files (FAST + ACCURATE)
         $files = glob(APP_PATH . '/Middleware/*.php') ?: [];
 
+        sort($files);
+
         $hashData = '';
-
-        foreach ($files as $file) {
-            $hashData .= filemtime($file);
+        foreach ($files as $f) {
+            $hashData .= $f . filemtime($f) . filesize($f);
         }
 
-        $currentHash = md5($hashData);
+        $hash = md5($hashData);
 
-        // ✅ FAST PATH: cache valid
-        if (is_file($cacheFile) && is_file($hashFile)) {
-            if (file_get_contents($hashFile) === $currentHash) {
-                self::$map = require $cacheFile;
-                return;
+        if (!is_file($cacheFile) || !is_file($hashFile) || file_get_contents($hashFile) !== $hash) {
+
+            $map = [];
+
+            foreach ($files as $file) {
+
+                require_once $file;
+
+                $class = 'App\\Middleware\\' . basename($file, '.php');
+
+                if (class_exists($class) && method_exists($class, 'handle')) {
+                    $map[basename($file, '.php')] = $class;
+                }
             }
+
+            if (!is_dir($cacheDir)) {
+                mkdir($cacheDir, 0777, true);
+            }
+
+            file_put_contents($cacheFile, '<?php return ' . var_export($map, true) . ';');
+            file_put_contents($hashFile, $hash);
         }
 
-        // ❗ REBUILD CACHE
-        self::$map = self::buildCache($files);
-
-        // Write cache (OPcache friendly)
-        file_put_contents(
-            $cacheFile,
-            '<?php return ' . var_export(self::$map, true) . ';'
-        );
-
-        file_put_contents($hashFile, $currentHash);
+        self::$map = require $cacheFile;
     }
 
-    private static function buildCache(array $files): array
-    {
-        $map = [];
+    /* =========================
+     * COMPILE PIPELINE (ZERO LOOP RUNTIME)
+     * ========================= */
 
-        foreach ($files as $file) {
-
-            require_once $file;
-
-            $class = 'App\\Middleware\\' . basename($file, '.php');
-
-            if (class_exists($class) && method_exists($class, 'handle')) {
-                $name = basename($file, '.php');
-
-                $map[$name] = $class;
-            }
-        }
-
-        return $map;
-    }
-
-    public static function compile(array $names, $handler): callable
+    public static function compileCode(array $names, string $handler): string
     {
         self::load();
 
-        $next = self::resolveHandler($handler);
+        [$class, $method] = explode('@', $handler, 2);
+        $fqcn = '\\App\\Controllers\\' . $class;
+
+        // Final controller execution
+        $code = "(new {$fqcn})->{$method}(...\$params)";
 
         foreach (array_reverse($names) as $name) {
 
-            // THROTTLE INLINE (NO CLASS)
+            // 🔥 HANDLE throttle inline
             if (str_starts_with($name, 'throttle:')) {
 
                 [$max, $sec] = array_map('intval', explode(',', explode(':', $name)[1]));
 
-                $next = function (...$args) use ($next, $max, $sec) {
-                    $ip = $_SERVER['REMOTE_ADDR'] ?? 'guest';
-
-                    if (!rate_limit($ip, $max, $sec)) {
-                        Response::error(429, 'Too Many Requests');
-                    }
-
-                    return $next(...$args);
-                };
-
+                $code = "
+                if(!rate_limit(\$_SERVER['REMOTE_ADDR'] ?? 'guest', {$max}, {$sec})) {
+                    \\UltraLean\\Core\\Response::error(429, 'Too Many Requests');
+                }
+                {$code}
+            ";
                 continue;
             }
 
-            $class = self::$map[$name];
+            $mw = self::$map[$name] ?? null;
 
-            $next = function (...$args) use ($class, $next) {
-                $instance = new $class();
+            if (!$mw) {
+                throw new \RuntimeException("Middleware {$name} not found");
+            }
 
-                if ($instance->handle(Request::instance()) === false) {
-                    return null;
-                }
-
-                return $next(...$args);
-            };
+            $code = "
+            if((new {$mw})->handle(\\UltraLean\\Core\\Request::instance()) === false) return;
+            {$code}
+        ";
         }
 
-        return $next;
+        return $code;
     }
 
-    private static function resolveHandler($handler): callable
+    public static function runtime(string $code): callable
     {
-        if (is_array($handler)) {
-            return function (...$args) use ($handler) {
-                static $instances = [];
-
-                [$class, $method] = $handler;
-
-                if (!isset($instances[$class])) {
-                    $instances[$class] = new $class();
-                }
-
-                return $instances[$class]->$method(...$args);
-            };
-        }
-
-        return $handler;
+        return eval("
+        return function(...\$params) {
+            {$code};
+        };
+    ");
     }
 }

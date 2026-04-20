@@ -113,7 +113,7 @@ function rate_limit_apcu(string $key, int $max, int $seconds): bool
 
 function rate_limit_file(string $key, int $max, int $seconds): bool
 {
-    $dir = STORAGE_PATH . '/rate';
+    $dir = STORAGE_PATH . '/rate_limit';
 
     if (!is_dir($dir)) {
         mkdir($dir, 0777, true);

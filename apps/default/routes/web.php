@@ -9,6 +9,7 @@ Router::get('/admin/home', 'Admin\HomeControllers@index', ['AdminAuth']);
 Router::get('/admin/about', 'Admin\HomeController@about');
 Router::get('/admin/login', 'HomeController@login');
 Router::get('/admin/logout', 'HomeController@logout');
+Router::get('/admin2', 'Admin\HomeController@index', ['AdminAuth', 'throttle:6,60']);
 
 Router::group(['prefix' => '/admin', 'middleware' => ['AdminAuth']], function () {
     Router::get('/', 'Admin\DashboardController@index');

@@ -2,6 +2,7 @@ composer.phar
 composer.lock
 /apps/default/storage/cache/
 /apps/default/storage/logs/
+/apps/default/storage/rate_limit/
 /examples/
 /vendor/
 

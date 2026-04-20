@@ -11,44 +11,55 @@ class Router
     private static array $compiled = [];
 
     /* =========================
-     * ROUTE DEFINITIONS (DEV ONLY)
+     * ROUTE REGISTRATION
      * ========================= */
 
-    public static function add(string $method, string $uri, $handler, array $middleware = []): void
+    public static function add(string $method, string $uri, string $handler, array $middleware = []): void
     {
         $uri = self::$groupPrefix . $uri;
+        $middleware = array_merge(self::$groupMiddleware, $middleware);
 
         self::$routes[] = [
-            'method' => strtoupper($method),
+            'method' => $method,
             'uri' => $uri,
-            'handler' => is_string($handler) && str_contains($handler, '@')
-                ? explode('@', $handler, 2)
-                : $handler,
-            'middleware' => array_merge(self::$groupMiddleware, $middleware),
+            'handler' => $handler,
+            'middleware' => $middleware,
         ];
     }
 
-    public static function get($uri, $handler, $mw = [])
+    public static function get($uri, $handler, $middleware = [])
     {
-        self::add('GET', $uri, $handler, $mw);
+        self::add('GET', $uri, $handler, $middleware);
     }
-    public static function post($uri, $handler, $mw = [])
+    public static function post($uri, $handler, $middleware = [])
     {
-        self::add('POST', $uri, $handler, $mw);
+        self::add('POST', $uri, $handler, $middleware);
     }
-    public static function put($uri, $handler, $mw = [])
+    public static function put($uri, $handler, $middleware = [])
     {
-        self::add('PUT', $uri, $handler, $mw);
+        self::add('PUT', $uri, $handler, $middleware);
     }
-    public static function delete($uri, $handler, $mw = [])
+    public static function delete($uri, $handler, $middleware = [])
     {
-        self::add('DELETE', $uri, $handler, $mw);
+        self::add('DELETE', $uri, $handler, $middleware);
+    }
+    public static function patch($uri, $handler, $middleware = [])
+    {
+        self::add('PATCH', $uri, $handler, $middleware);
+    }
+    public static function head($uri, $handler, $middleware = [])
+    {
+        self::add('HEAD', $uri, $handler, $middleware);
+    }
+    public static function options($uri, $handler, $middleware = [])
+    {
+        self::add('OPTIONS', $uri, $handler, $middleware);
     }
 
     public static function group(array $opts, callable $cb): void
     {
         $prevPrefix = self::$groupPrefix;
-        $prevMw = self::$groupMiddleware;
+        $prevMW = self::$groupMiddleware;
 
         if (!empty($opts['prefix'])) {
             self::$groupPrefix .= $opts['prefix'];
@@ -61,71 +72,90 @@ class Router
         $cb();
 
         self::$groupPrefix = $prevPrefix;
-        self::$groupMiddleware = $prevMw;
+        self::$groupMiddleware = $prevMW;
     }
 
     /* =========================
-     * BOOT
+     * BOOT (COMPILE)
      * ========================= */
 
     public static function boot(): void
     {
-        $cacheFile = STORAGE_PATH . '/cache/routes.php';
-        $hashFile  = STORAGE_PATH . '/cache/routes.hash';
-
-        $hash = self::routesHash();
-
-        if (!is_file($cacheFile) || !is_file($hashFile) || file_get_contents($hashFile) !== $hash) {
-            self::compile($cacheFile, $hashFile);
-        }
-
-        self::$compiled = require $cacheFile;
+        self::compile();
+        self::$routes = require STORAGE_PATH . '/cache/routes.php';
     }
 
-    private static function routesHash(): string
-    {
-        $files = glob(APP_PATH . '/routes/*.php');
+    /* =========================
+     * COMPILE
+     * ========================= */
 
-        $ctx = '';
-        foreach ($files as $f) {
-            $ctx .= filemtime($f);
+    private static function compile(): void
+    {
+        $routesDir = APP_PATH . '/routes';
+        $cacheDir  = STORAGE_PATH . '/cache';
+
+        $cacheFile = $cacheDir . '/routes.php';
+        $hashFile  = $cacheDir . '/routes.hash';
+
+        // 1. Get all route files
+        $files = glob($routesDir . '/*.php');
+
+        // 2. Build hash (VERY FAST)
+        $hashData = '';
+
+        foreach ($files as $file) {
+            $hashData .= $file . filemtime($file);
         }
 
-        return md5($ctx);
-    }
+        $currentHash = md5($hashData);
 
-    private static function compile(string $cacheFile, string $hashFile): void
-    {
+        // 3. Skip if unchanged
+        if (
+            is_file($cacheFile) &&
+            is_file($hashFile) &&
+            file_get_contents($hashFile) === $currentHash
+        ) {
+            return;
+        }
+
+        // 4. Ensure cache dir
+        if (!is_dir($cacheDir)) {
+            mkdir($cacheDir, 0777, true);
+        }
+
+        // 5. Reset routes
         self::$routes = [];
 
-        require APP_PATH . '/routes/web.php';
+        // 6. Load ALL route files automatically
+        foreach ($files as $file) {
+            require $file;
+        }
 
+        // 7. Compile routes (NO closures)
         $compiled = [];
 
         foreach (self::$routes as $r) {
-
-            $regex = self::compileUri($r['uri']);
-
-            $pipeline = Middleware::compile($r['middleware'], $r['handler']);
-
-            $compiled[$r['method']][] = [
-                'regex' => $regex,
-                'handler' => $pipeline,
+            $compiled[] = [
+                'method' => $r['method'],
+                'regex'  => self::toRegex($r['uri']),
+                'handler' => $r['handler'],   // STRING only
+                'middleware' => $r['middleware'],
             ];
         }
 
-        if (!is_dir(dirname($cacheFile))) {
-            mkdir(dirname($cacheFile), 0777, true);
-        }
+        // 8. Save cache (SAFE)
+        file_put_contents(
+            $cacheFile,
+            '<?php return ' . var_export($compiled, true) . ';'
+        );
 
-        file_put_contents($cacheFile, '<?php return ' . var_export($compiled, true) . ';');
-        file_put_contents($hashFile, self::routesHash());
+        file_put_contents($hashFile, $currentHash);
     }
 
-    private static function compileUri(string $uri): string
+    private static function toRegex(string $uri): string
     {
-        $pattern = preg_replace('#\{([^}]+)\}#', '([^/]+)', $uri);
-        return '#^' . $pattern . '$#';
+        $pattern = preg_replace('#\{[^/]+\}#', '([^/]+)', $uri);
+        return '#^' . rtrim($pattern, '/') . '$#';
     }
 
     /* =========================
@@ -134,6 +164,18 @@ class Router
 
     public static function dispatch(): void
     {
+        if (config('security.rate_limit.enabled', false)) {
+
+            $ip = $_SERVER['REMOTE_ADDR'] ?? 'guest';
+
+            if (!rate_limit(
+                'global|' . $ip,
+                config('security.rate_limit.max', 100),
+                config('security.rate_limit.window', 60)
+            )) {
+                \UltraLean\Core\Response::error(429, 'Too Many Requests');
+            }
+        }
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $uri = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 
@@ -145,7 +187,8 @@ class Router
 
                 array_shift($matches);
 
-                $r['handler'](...$matches);
+                $pipeline = Middleware::runtime($r['pipeline']);
+                $pipeline(...$matches);
                 return;
             }
         }
