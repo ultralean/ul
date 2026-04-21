@@ -14,4 +14,3 @@ class AdminAuth
         return true;
     }
 }
-

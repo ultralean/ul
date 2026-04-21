@@ -5,28 +5,30 @@ namespace UltraLean\Core;
 class Middleware
 {
     private static array $map = [];
+    private static array $prototypes = [];
+    private static array $controllers = [];
 
     private static function load(): void
     {
         if (self::$map) return;
 
-        $cacheDir = STORAGE_PATH . '/cache';
-        $cacheFile = $cacheDir . '/middleware.php';
-        $hashFile  = $cacheDir . '/middleware.hash';
+        $cache = STORAGE_PATH . '/cache/middleware.php';
+        $hashFile = STORAGE_PATH . '/cache/middleware.hash';
 
         $files = glob(APP_PATH . '/Middleware/*.php') ?: [];
 
-        sort($files);
-
-        $hashData = '';
+        // 🔥 BUILD HASH (fast + reliable)
+        $hash = '';
         foreach ($files as $f) {
-            $hashData .= $f . filemtime($f) . filesize($f);
+            $hash .= $f . filemtime($f);
         }
+        $hash = md5($hash);
 
-        $hash = md5($hashData);
-
-        if (!is_file($cacheFile) || !is_file($hashFile) || file_get_contents($hashFile) !== $hash) {
-
+        if (
+            !is_file($cache) ||
+            !is_file($hashFile) ||
+            file_get_contents($hashFile) !== $hash
+        ) {
             $map = [];
 
             foreach ($files as $file) {
@@ -40,44 +42,57 @@ class Middleware
                 }
             }
 
-            if (!is_dir($cacheDir)) {
-                mkdir($cacheDir, 0777, true);
+            // ✅ ENSURE DIRECTORY EXISTS
+            $dir = dirname($cache);
+
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
             }
 
-            file_put_contents($cacheFile, '<?php return ' . var_export($map, true) . ';');
+            // ✅ WRITE CACHE
+            file_put_contents(
+                $cache,
+                '<?php return ' . var_export($map, true) . ';'
+            );
+
             file_put_contents($hashFile, $hash);
         }
 
-        self::$map = require $cacheFile;
+        self::$map = require $cache;
     }
 
-    /* =========================
-     * COMPILE PIPELINE (ZERO LOOP RUNTIME)
-     * ========================= */
-
-    public static function compileCode(array $names, string $handler): string
+    public static function compile(array $names, string $handler): callable
     {
         self::load();
 
         [$class, $method] = explode('@', $handler, 2);
-        $fqcn = '\\App\\Controllers\\' . $class;
+        $fqcn = 'App\\Controllers\\' . $class;
 
-        // Final controller execution
-        $code = "(new {$fqcn})->{$method}(...\$params)";
+        if (!isset(self::$controllers[$fqcn])) {
+            self::$controllers[$fqcn] = new $fqcn();
+        }
+
+        $controller = self::$controllers[$fqcn];
+
+        $next = static function (...$params) use ($controller, $method) {
+            $controller->$method(...$params);
+        };
 
         foreach (array_reverse($names) as $name) {
 
-            // 🔥 HANDLE throttle inline
             if (str_starts_with($name, 'throttle:')) {
 
                 [$max, $sec] = array_map('intval', explode(',', explode(':', $name)[1]));
 
-                $code = "
-                if(!rate_limit(\$_SERVER['REMOTE_ADDR'] ?? 'guest', {$max}, {$sec})) {
-                    \\UltraLean\\Core\\Response::error(429, 'Too Many Requests');
-                }
-                {$code}
-            ";
+                $next = static function (...$params) use ($next, $max, $sec) {
+
+                    if (!rate_limit($_SERVER['REMOTE_ADDR'] ?? 'x', $max, $sec)) {
+                        \UltraLean\Core\Response::error(429);
+                    }
+
+                    return $next(...$params);
+                };
+
                 continue;
             }
 
@@ -87,21 +102,22 @@ class Middleware
                 throw new \RuntimeException("Middleware {$name} not found");
             }
 
-            $code = "
-            if((new {$mw})->handle(\\UltraLean\\Core\\Request::instance()) === false) return;
-            {$code}
-        ";
+            $next = static function (...$params) use ($mw, $next) {
+
+                if (!isset(self::$prototypes[$mw])) {
+                    self::$prototypes[$mw] = new $mw();
+                }
+
+                $m = clone self::$prototypes[$mw];
+
+                if ($m->handle(\UltraLean\Core\Request::instance()) === false) {
+                    return;
+                }
+
+                return $next(...$params);
+            };
         }
 
-        return $code;
-    }
-
-    public static function runtime(string $code): callable
-    {
-        return eval("
-        return function(...\$params) {
-            {$code};
-        };
-    ");
+        return $next;
     }
 }

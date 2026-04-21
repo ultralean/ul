@@ -163,7 +163,7 @@ return [
      * ========================= */
         'rate_limit' => [
             'enabled' => true,
-            'max' => 100,
+            'max' => 1000,
             'window' => 60, // seconds
         ],
     ],
