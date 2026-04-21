@@ -21,7 +21,7 @@ class HomeController extends BaseController
 
     public function logout()
     {
-        session('admin_logged_in', null);
+        session('admin_logged_in', false);
         redirect('/admin/login', 302);
     }
 

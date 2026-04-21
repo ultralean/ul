@@ -12,6 +12,8 @@
 
 $webroot = getcwd(); // The public directory (public_html, public, htdocs, www, wwwroot, etc.) which contains index.php
 
+$timezone = 'Asia/Karachi';
+
 return [
 
     'app' => [
@@ -35,7 +37,7 @@ return [
 
         'uploads_path' => $webroot . '/uploads',
 
-        'timezone' => 'Asia/Karachi', // Set timezone for the application and database
+        'timezone' => $timezone, // Set timezone for the application and database
 
         /**
          * Check if the view file exists before rendering.
@@ -107,7 +109,7 @@ return [
 
     'security' => [
 
-        /* =========================
+    /* =========================
      * API
      * ========================= 
      * 
@@ -125,7 +127,7 @@ return [
             'key' => 'your-secret-key',
         ],
 
-        /* =========================
+    /* =========================
      * CSRF
      * ========================= */
         'csrf' => [
@@ -140,7 +142,7 @@ return [
             'header' => 'X-CSRF-TOKEN',
         ],
 
-        /* =========================
+    /* =========================
      * CORS
      * ========================= */
         'cors' => [
@@ -150,7 +152,7 @@ return [
             'allow_headers' => 'Content-Type, Authorization, X-Requested-With, X-CSRF-TOKEN',
         ],
 
-        /* =========================
+    /* =========================
      * CSP
      * ========================= */
         'csp' => [
@@ -158,12 +160,21 @@ return [
             'policy' => "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline';",
         ],
 
-        /* =========================
-     * RATE LIMIT
-     * ========================= */
+    /* =========================
+     * GLOBAL RATE LIMIT
+     * ========================= 
+     * 
+     * Global rate limiting applies to all requests to the application.
+     * 
+     * If enabled, it will limit the number of requests to the application
+     * based on the max and window settings.
+     * 
+     * It uses APCu for caching if available, otherwise it uses file-based caching as fallback.
+     * 
+     * */
         'rate_limit' => [
             'enabled' => true,
-            'max' => 1000,
+            'max' => 2000,
             'window' => 60, // seconds
         ],
     ],
