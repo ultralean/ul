@@ -75,7 +75,7 @@ abstract class Controller
     {
         static $base = null;
 
-        $base ??= rtrim(config('base_url'), '/');
+        $base ??= rtrim(config('app.base_url'), '/');
 
         return $base . '/' . ltrim($path, '/');
     }

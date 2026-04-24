@@ -13,7 +13,7 @@ class Response
             header('Content-Type: ' . $type);
             header('X-Request-ID: ' . REQUEST_ID);
 
-            if (config('security.csp.enabled', true)) {
+            if (config('security.csp.enabled')) {
                 header('Content-Security-Policy: ' . config('security.csp.policy'));
             }
         }
